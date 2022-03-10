@@ -1,9 +1,13 @@
 # COMP4411-PA2 requirements:   
 
 [0]	创建一个简单的可控的模型，要求：
+
           10primitives, 4 hirarchy (用glTranslate(), glRotate(), glScale()处理  
+          
           glPushMatrix() and glPopMatrix() 进行matrix变换  
+          
           用slider调节, 并且一个关节/部分至少用一个slider来控制动作, 且一个slider可以控制多个关节/部分
+          
 [0] 	实现gluLookAt()
 [0.5]	改光源
 [0.5]	可控制细节显示的多少
