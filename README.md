@@ -1,4 +1,5 @@
 # COMP4411-PA2 requirements:   
+
 [0]	创建一个简单的可控的模型，要求：
           10primitives, 4 hirarchy (用glTranslate(), glRotate(), glScale()处理  
           glPushMatrix() and glPopMatrix() 进行matrix变换  
