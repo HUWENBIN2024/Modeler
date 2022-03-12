@@ -38,3 +38,4 @@
 
 [8+4]	Inverse Kinematics，根据运动结果，决定运动过程与细节
 
+独轮车模型原型来自1987年皮克斯短片"Red's Dream"中的主角Red
