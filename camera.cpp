@@ -178,9 +178,64 @@ void Camera::applyViewingTransform() {
 
 	// Place the camera at mPosition, aim the camera at
 	// mLookAt, and twist the camera such that mUpVector is up
-	gluLookAt(	mPosition[0], mPosition[1], mPosition[2],
+	/*gluLookAt(	mPosition[0], mPosition[1], mPosition[2],
 				mLookAt[0],   mLookAt[1],   mLookAt[2],
-				mUpVector[0], mUpVector[1], mUpVector[2]);
+				mUpVector[0], mUpVector[1], mUpVector[2]);*/
+	lookAt (Vec3f(mPosition[0], mPosition[1], mPosition[2]),
+			Vec3f(mLookAt[0], mLookAt[1], mLookAt[2]),
+			Vec3f(mUpVector[0], mUpVector[1], mUpVector[2]) );
+}
+
+void norm(Vec3f& vec)
+{
+	float norm = sqrt(vec[0]*vec[0] + vec[1] * vec[1] + vec[2] * vec[2]);
+	for (int i = 0; i < 3; i++)
+	{
+		vec[i] /= norm;
+	}
+}
+
+Vec3f cross(Vec3f a, Vec3f b)
+{
+	Vec3f vec(a[1]*b[2] - a[2]*b[1], -a[0] * b[2] + a[2] * b[0], a[0] * b[1] - a[1] * b[0]);
+	return vec;
+}
+
+GLdouble* mat2GL(Mat4f mat)
+{
+	GLdouble return_Mat[16];
+	memset(return_Mat, 0, sizeof(return_Mat));
+	for (int i = 0; i < 16; i++)
+	{
+		return_Mat[i] = mat[i%4][i/4];
+	}
+	return return_Mat;
+}
+
+void Camera::lookAt(Vec3f eye, Vec3f at, Vec3f up)
+{
+	
+	GLdouble Mat[16];
+	memset(Mat, 0, sizeof(Mat));
+	Vec3f forward(at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]);
+	norm(forward);
+	Vec3f side = cross(forward, up);
+	norm(side);
+	up = cross(side, forward);
+
+	Mat[0] = side[0];
+	Mat[4] = side[1];
+	Mat[8] = side[2];
+	Mat[1] = up[0];
+	Mat[5] = up[1];
+	Mat[9] = up[2];
+	Mat[2] = -forward[0];
+	Mat[6] = -forward[1];
+	Mat[10] = -forward[2];
+	Mat[15] = 1;
+
+	glLoadMatrixd(Mat);
+	glTranslated(-eye[0], -eye[1], -eye[2]);
 }
 
 #pragma warning(pop)
