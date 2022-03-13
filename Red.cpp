@@ -7,6 +7,7 @@
 #include <FL/gl.h>
 
 #include "modelerglobals.h"
+#define PI 3.1415926
 
 //For Animation
 int degree_inc = 0;
@@ -28,6 +29,85 @@ ModelerView* createSampleModel(int x, int y, int w, int h, char* label)
 	return new Unicycle(x, y, w, h, label);
 }
 
+GLfloat point_cloud[130][60] = {};
+GLfloat control_point[5] = {0 , 50, -20, 25, 0};
+
+GLfloat bezier(GLfloat l)
+{
+	GLfloat t = (l / SADDLE_LENGTH);
+	GLfloat b = 0;
+	int coef[5] = { 1, 4, 6, 4, 1 };
+	for (int i = 0; i < 5; i++)
+	{
+		b += control_point[i] * coef[i] * pow(t, i) * pow(1-t, 4-i);
+	}
+	return b;
+}
+
+void cal_points()
+{
+
+	for (int l = 0; l < SADDLE_LENGTH; l++)
+	{
+		GLfloat b = bezier(l);
+		GLfloat w = (SADDLE_LENGTH - l) / SADDLE_LENGTH * SADDLE_WIDTH;
+		GLfloat r = w / 2;
+		GLfloat h = (sqrt(2) - 1) * r;
+		for (int w_ = -w / 2; w_ < w / 2; w_++)
+		{
+			GLfloat h_ = sqrt(2 * r * r - w_ * w_) - r;
+			GLfloat b_ = (h_ / h) * b;
+			point_cloud[l][int(SADDLE_WIDTH) / 2 + w_] = b_ + SADDLE_HEIGHT;
+		}
+	}
+}
+
+void draw_pad()
+{
+	cal_points();
+	for (int l = 0; l < SADDLE_LENGTH; l++)
+	{
+		GLfloat w = (SADDLE_LENGTH - l) / SADDLE_LENGTH * SADDLE_WIDTH;
+		for (int w_ = -w / 2; w_ < w / 2; w_++)
+		{
+			double x_1 = SADDLE_WIDTH / 2 + w_; double y_1 = l; double z_1 = point_cloud[int(y_1)][int(x_1)];
+			double x_2 = SADDLE_WIDTH / 2 + w_ + 1; double y_2 = l; double z_2 = point_cloud[int(y_2)][int(x_2)];
+			double x_3 = SADDLE_WIDTH / 2 + w_; double y_3 = l + 1; double z_3 = point_cloud[int(y_3)][int(x_3)];
+			double x_4 = SADDLE_WIDTH / 2 + w_ + 1; double y_4 = l + 1; double z_4 = point_cloud[int(y_4)][int(x_4)];
+
+			drawTriangle(x_1, y_1, z_1, 
+						x_2, y_2, z_2, 
+						x_4, y_4, z_4 ); //draw points 1,2,4 
+			drawTriangle(x_1, y_1, z_1,
+						x_3, y_3, z_3,
+						x_4, y_4, z_4); //draw points 1,3,4 
+
+		}
+	};
+}
+
+void draw_spring()
+{
+	float r = 2;
+	float R = 8;
+	glPushMatrix();
+	for (float theta = 0; theta < 360 * 5; theta++)
+	{
+		double rad = theta * PI / 180;
+		glPushMatrix();
+		glTranslated(R * cos(rad) + 20, R * sin(rad) + 40, -(1 + 2.5 * theta / 360) * r);
+		drawSphere(r);
+		glPopMatrix();
+
+		glPushMatrix();		
+		glTranslated(R * cos(rad) + 40, R * sin(rad) + 40, -(1 + 2.5 * theta / 360) * r);
+		drawSphere(r);
+		glPopMatrix();
+		// drawSphere(15 * cos(rad)+15, 15*sin(rad)+15, -(1+2*theta/360)*r);
+	}
+	glPopMatrix();
+}
+
 // We are going to override (is that the right word?) the draw()
 // method of ModelerView to draw out Unicycle
 void Unicycle::draw()
@@ -36,6 +116,17 @@ void Unicycle::draw()
 	// matrix stuff.  Unless you want to fudge directly with the 
 	// projection matrix, don't bother with this ...
 	ModelerView::draw();
+
+	// draw_surface();
+
+	glEnable(GL_LIGHT2);
+	static GLfloat lightDiffuse[] = { 5, 5, 5, 1 };			// strengthen the intencity of the light0 and light1    BW1
+	static GLfloat lightAmbient[] = { 0.1, 0.1, 0.1, 1 };   // create an ambient light with low intencity
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
+	glLightfv(GL_LIGHT1, GL_DIFFUSE, lightDiffuse);
+	glLightfv(GL_LIGHT2, GL_AMBIENT, lightAmbient);
+
+	
 
 	if (ModelerUserInterface::m_controlsAnimOnMenu->value() != 0) degree_inc += 6;
 	else degree_inc = 0;
@@ -173,6 +264,11 @@ void Unicycle::draw()
 					glTranslated(0, 0, VAL(SEATPOST_HEIGHT));
 					glRotated(-VAL(SADDLE_DIR), 0, 0, 1);
 					glTranslated(-SADDLE_WIDTH / 2, -SADDLE_DIST, 0);
+
+					draw_pad(); // BW5
+
+					draw_spring();
+
 					drawTriangle(0,0,0,
 								 SADDLE_WIDTH,0,0,
 								 SADDLE_WIDTH/2,SADDLE_LENGTH,0);
