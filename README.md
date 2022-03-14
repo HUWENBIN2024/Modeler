@@ -1,6 +1,6 @@
 # COMP4411-PA2 requirements:   
 
-[0]J √	创建一个简单的可控的模型，要求：
+[0]J	创建一个简单的可控的模型，要求： (完成)
 
           10primitives, 4 hirarchy (用glTranslate(), glRotate(), glScale()处理  
           
