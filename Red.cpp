@@ -5,21 +5,37 @@
 #include "modelerdraw.h"
 #include "modelerui.h"
 #include <FL/gl.h>
+#include <iostream>
 
 #include "modelerglobals.h"
 #define PI 3.1415926
+#include "bitmap.h"
+#include "mat.h"
 
-//For Animation
-int degree_inc = 0;
 
 // To make a Unicycle, we inherit off of ModelerView
 class Unicycle : public ModelerView
 {
 public:
 	Unicycle(int x, int y, int w, int h, char* label)
-		: ModelerView(x, y, w, h, label) { }
+		: ModelerView(x, y, w, h, label) {
+		BMPheight = 64;
+		BMPwidth = 64;
+		textureBMP = readBMP("./Red_Label.bmp", BMPwidth, BMPheight);
+	}
 
 	virtual void draw();
+
+private:
+	unsigned char* textureBMP = nullptr;
+	int BMPheight = 0;
+	int BMPwidth = 0;
+	double dDegree = 10;
+	int time = 0;//For Animation; 1 'time' = 1/30 second
+
+	bool animated = false;
+
+	void drawLabelTexture();
 };
 
 // We need to make a creator function, mostly because of
@@ -108,6 +124,150 @@ void draw_spring()
 	glPopMatrix();
 }
 
+// By default, normal is k_hat = (0,0,1).
+// centerLine is of size (lineSize+1,2). edgeLine is of size (lineSize,2).
+void drawTube(double** centerLine, double** edgeLine, int lineSize, double dDegree) {
+	//Beware of segmentation error when using this function.
+	int SPPL = (int)(360 / dDegree); //"Sample Points per Layer"
+
+	double*** pts = new double** [lineSize];
+	for (int i = 0; i < lineSize; i++) {
+		pts[i] = new double* [SPPL+1]; //首尾相连
+		for (int j = 0; j < SPPL+1; j++) {
+			pts[i][j] = new double[3];
+		}
+	}
+
+	// Construct 'pts'
+	for (int i = 0; i < lineSize; i++) {
+		double a[2] = { edgeLine[i][0] - centerLine[i][0],edgeLine[i][1] - centerLine[i][1] };
+		double b[2] = { centerLine[i + 1][0] - centerLine[i][0],centerLine[i + 1][1] - centerLine[i][1] };
+		double n[2] = { a[0] * (a[0] * b[0] + a[1] * b[1]) - b[0] * (a[0] * a[0] + a[1] * a[1]), 
+						a[1] * (a[0] * b[0] + a[1] * b[1]) - b[1] * (a[0] * a[0] + a[1] * a[1]) };
+		for (int k = 0; k < 3; k++) {
+			if (k != 2) pts[i][0][k] = edgeLine[i][k];
+			else pts[i][0][k] = 0;
+			pts[i][SPPL][k] = pts[i][0][k]; //首尾相连
+		}
+		for (int j = 1; j < SPPL; j++) {
+			double p[3] = { pts[i][j - 1][0] - centerLine[i][0],pts[i][j - 1][1] - centerLine[i][1],pts[i][j - 1][2] };
+			Mat3d rot = Mat3d::createRotation(dDegree / 180 * PI, n[0], n[1]);
+			double q[3] = { p[0] * rot[0] + p[1] * rot[1] + p[2] * rot[2],p[0] * rot[3] + p[1] * rot[4] + p[2] * rot[5],p[0] * rot[6] + p[1] * rot[7] + p[2] * rot[8] };
+			for (int k = 0; k < 3; k++) {
+				if (k != 2) pts[i][j][k] = q[k] + centerLine[i][k];
+				else pts[i][j][k] = q[k];
+			}
+		}
+	}
+
+	// draw side
+	for (int i = 0; i < lineSize-1; i++) {
+		for (int j = 0; j < SPPL; j++) {
+			glBegin(GL_POLYGON);
+				glVertex3d(pts[i][j][0], pts[i][j][1], pts[i][j][2]);
+				glVertex3d(pts[i + 1][j][0], pts[i + 1][j][1], pts[i + 1][j][2]);
+				glVertex3d(pts[i + 1][j + 1][0], pts[i + 1][j + 1][1], pts[i + 1][j + 1][2]);
+				glVertex3d(pts[i][j + 1][0], pts[i][j + 1][1], pts[i][j + 1][2]);
+			glEnd();
+		}
+	}
+
+	//draw bottom & top
+	glBegin(GL_TRIANGLE_FAN);
+		glVertex3d(centerLine[0][0], centerLine[0][1], centerLine[0][2]);
+		for (int j = 0; j < SPPL + 1; j++) {
+			glVertex3d(pts[0][j][0], pts[0][j][1], pts[0][j][2]);
+		}
+	glEnd();
+	glBegin(GL_TRIANGLE_FAN);
+	glVertex3d(centerLine[lineSize - 1][0], centerLine[lineSize - 1][1], centerLine[lineSize - 1][2]);
+	for (int j = SPPL; j >= 0; j--) { // Beware of Orientation
+		glVertex3d(pts[lineSize - 1][j][0], pts[lineSize - 1][j][1], pts[lineSize - 1][j][2]);
+	}
+	glEnd();
+
+	for (int i = 0; i < lineSize; i++) {
+		for (int j = 0; j < SPPL+1; j++) {
+			delete[] pts[i][j];
+		}
+		delete[] pts[i];
+	}
+	delete[] pts;
+}
+
+void drawTorus(double R, double r, double dDegree) {
+	if (R < r) exit(-1);
+
+	int SPPL = (int)(360 / dDegree); //"Sample Points per Layer"
+
+	double** centerLine = new double* [SPPL + 2];
+	for (int j = 0; j < SPPL + 2; j++) {
+		centerLine[j] = new double[2];
+		centerLine[j][0] = R * cos(j * dDegree * PI / 180);
+		centerLine[j][1] = R * sin(j * dDegree * PI / 180);
+	}
+	for (int k = 0; k < 2; k++) {
+		centerLine[SPPL][k] = centerLine[0][k];
+		centerLine[SPPL + 1][k] = centerLine[1][k];
+	}
+
+	double** edgeLine = new double* [SPPL + 1];
+	for (int j = 0; j < SPPL + 1; j++) {
+		edgeLine[j] = new double[2];
+		edgeLine[j][0] = (R-r) * cos(j * dDegree * PI / 180);
+		edgeLine[j][1] = (R-r) * sin(j * dDegree * PI / 180);
+	}
+	for (int k = 0; k < 2; k++) {
+		edgeLine[SPPL][k] = edgeLine[0][k];
+	}
+
+	drawTube(centerLine, edgeLine, SPPL + 1, dDegree);
+
+	for (int j = 0; j < SPPL + 2; j++) {
+		delete[] centerLine[j];
+	}
+	delete[] centerLine;
+	for (int j = 0; j < SPPL + 1; j++) {
+		delete[] edgeLine[j];
+	}
+	delete[] edgeLine;
+}
+
+void drawPartialTorus(double l, double r, double t, double dDegree) { // length, radius, theta (in rad). Drawn in x-y plane
+	int NoSP = floor(180*t / PI + 0.1) + 1; //"Number of Sample Points" (in edgeLine)
+
+	double** centerLine = new double* [NoSP + 1];
+	for (int j = 0; j < NoSP + 1; j++) {
+		centerLine[j] = new double[2];
+		double this_t = t / (NoSP-1) * j;
+		centerLine[j][0] = l / t * (1 - cos(this_t));
+		centerLine[j][1] = l / t * sin(this_t);
+	}
+	centerLine[NoSP-1][0] = l / t * (1 - cos(t));
+	centerLine[NoSP-1][1] = l / t * sin(t);
+
+	double** edgeLine = new double* [NoSP];
+	for (int j = 0; j < NoSP; j++) {
+		edgeLine[j] = new double[2];
+		double this_t = t / (NoSP-1) * j;
+		edgeLine[j][0] = r + (l / t - r) * (1 - cos(this_t));
+		edgeLine[j][1] = (l / t - r) * sin(this_t);
+	}
+	edgeLine[NoSP-1][0] = r + (l / t - r) * (1 - cos(t));
+	edgeLine[NoSP-1][1] = (l / t - r) * sin(t);
+
+	drawTube(centerLine, edgeLine, NoSP, dDegree);
+
+	for (int j = 0; j < NoSP + 1; j++) {
+		delete[] centerLine[j];
+	}
+	delete[] centerLine;
+	for (int j = 0; j < NoSP; j++) {
+		delete[] edgeLine[j];
+	}
+	delete[] edgeLine;
+}
+
 // We are going to override (is that the right word?) the draw()
 // method of ModelerView to draw out Unicycle
 void Unicycle::draw()
@@ -126,10 +286,13 @@ void Unicycle::draw()
 	glLightfv(GL_LIGHT1, GL_DIFFUSE, lightDiffuse);
 	glLightfv(GL_LIGHT2, GL_AMBIENT, lightAmbient);
 
-	
 
-	if (ModelerUserInterface::m_controlsAnimOnMenu->value() != 0) degree_inc += 6;
-	else degree_inc = 0;
+
+	if (ModelerUserInterface::m_controlsAnimOnMenu->value() != 0) animated = true;
+	else animated = false;
+	
+	if (animated) ++time;
+	else time = 0;
 
 	glPushMatrix();
 	glScaled(1, -1, 1);
@@ -145,43 +308,67 @@ void Unicycle::draw()
 	glPopMatrix();*/
 
 	// draw the unicycle
-	setAmbientColor(1.0f,1.0f,1.0f);
+	setAmbientColor(0.1f,0.1f,0.1f);
 	setDiffuseColor(0.4,0.4,0.4);
 	glTranslated(VAL(XPOS), VAL(YPOS), VAL(ZPOS));
 	glScaled(SCALE_FACTOR, SCALE_FACTOR, SCALE_FACTOR);
-
 		//draw the axle
 		glPushMatrix();
-		glRotated(VAL(AXLE_DIR), 0, 0, 1);
+		if (VAL(HAPPINESS) == -1) {
+			glRotated(VAL(AXLE_DIR) + 30 * sin(PI / 60 * time), 0, 0, 1);
+		}
+		else {
+			glRotated(VAL(AXLE_DIR), 0, 0, 1);
+		}
 		glRotated(90, 0, 1, 0);
 		drawCylinder(AXLE_LENGTH_HALF, AXLE_RADIUS, AXLE_RADIUS);
 		glScaled(-1, 1, -1);
 		drawCylinder(AXLE_LENGTH_HALF, AXLE_RADIUS, AXLE_RADIUS);
 		glScaled(-1, 1, -1);
 		glRotated(-90, 0, 1, 0);
-
 		if (VAL(LEVEL_OF_DETAILS) >= 2) {
-
 			//draw the wheel
 			setDiffuseColor(0.05, 0.05, 0.05);
 			glPushMatrix();
-			glRotated(-VAL(WHEEL_DIR), 1, 0, 0);
-			glTranslated(-WHEEL_WIDTH / 2, 0, 0);
-			glRotated(90, 0, 1, 0);
-			drawCylinder(WHEEL_WIDTH, WHEEL_RADIUS, WHEEL_RADIUS);
+			glRotated(-2* (VAL(CRANK_DIR) + 6 * time) * pow(2, VAL(HAPPINESS)), 1, 0, 0);
+			if (VAL(WHEEL_QUALITY) == 0) {
+				glTranslated(-WHEEL_WIDTH / 2, 0, 0);
+				glRotated(90, 0, 1, 0);
+				drawCylinder(WHEEL_WIDTH, WHEEL_RADIUS, WHEEL_RADIUS);
+			}
+			else if (VAL(WHEEL_QUALITY) == 1) {
+				glRotated(90, 0, 1, 0);
+				drawTorus(WHEEL_RADIUS - WHEEL_WIDTH / 2, WHEEL_WIDTH / 2, dDegree);
+				glRotated(-90, 0, 1, 0);
+				//draw spokes
+				setDiffuseColor(0.7, 0.7, 0.7);
+				glTranslated(SPOKE_DIST, 0, 0);
+				for (int deg = 0; deg < 360; deg += 40) {
+					drawCylinder(SPOKE_LENGTH, SPOKE_RADIUS, SPOKE_RADIUS);
+					glRotated(10, -1, 0, 0);
+					drawCylinder(SPOKE_LENGTH, SPOKE_RADIUS, SPOKE_RADIUS);
+					glRotated(30, -1, 0, 0);
+				}
+				glTranslated(-2 * SPOKE_DIST, 0, 0);
+				glRotated(3, -1, 0, 0);
+				for (int deg = 0; deg < 360; deg += 40) {
+					drawCylinder(SPOKE_LENGTH, SPOKE_RADIUS, SPOKE_RADIUS);
+					glRotated(10, -1, 0, 0);
+					drawCylinder(SPOKE_LENGTH, SPOKE_RADIUS, SPOKE_RADIUS);
+					glRotated(30, -1, 0, 0);
+				}
+				glTranslated(SPOKE_DIST, 0, 0);
+			}
 			glPopMatrix();
-
 			//draw the left crank
 			setDiffuseColor(0.4, 0.4, 0.4);
 			glPushMatrix();
 			glTranslated(-CRANK_DIST, 0, 0);
-			glRotated(-VAL(CRANK_DIR) - 90 - degree_inc, 1, 0, 0);
+			glRotated(-90 - (VAL(CRANK_DIR) + 6*time) * pow(2, VAL(HAPPINESS)), 1, 0, 0);
 			drawCylinder(CRANK_LENGTH, CRANK_RADIUS_ROOT, CRANK_RADIUS_TOP);
 			glTranslated(0, 0, CRANK_LENGTH);
-			glRotated(VAL(CRANK_DIR) + 90 + degree_inc, 1, 0, 0);
-
+			glRotated(90 + (VAL(CRANK_DIR) + 6 * time) * pow(2, VAL(HAPPINESS)), 1, 0, 0);
 			if (VAL(LEVEL_OF_DETAILS) >= 3) {
-
 				//draw the left pedal
 				setDiffuseColor(0.05, 0.05, 0.05);
 				glPushMatrix();
@@ -190,22 +377,17 @@ void Unicycle::draw()
 				glTranslated(0, PEDAL_WIDTH + PEDAL_GAP, 0);
 				drawBox(PEDAL_LENGTH, PEDAL_WIDTH, PEDAL_HEIGHT);
 				glPopMatrix();
-
 			}
-
 			glPopMatrix();
-
 			//draw the right crank
 			setDiffuseColor(0.4, 0.4, 0.4);
 			glPushMatrix();
 			glTranslated(CRANK_DIST, 0, 0);
-			glRotated(-VAL(CRANK_DIR) + 90 - degree_inc, 1, 0, 0);
+			glRotated(90- (VAL(CRANK_DIR) + 6 * time) * pow(2, VAL(HAPPINESS)), 1, 0, 0);
 			drawCylinder(CRANK_LENGTH, CRANK_RADIUS_ROOT, CRANK_RADIUS_TOP);
 			glTranslated(0, 0, CRANK_LENGTH);
-			glRotated(VAL(CRANK_DIR) - 90 + degree_inc, 1, 0, 0);
-
+			glRotated(-90+ (VAL(CRANK_DIR) + 6 * time) * pow(2, VAL(HAPPINESS)), 1, 0, 0);
 			if (VAL(LEVEL_OF_DETAILS) >= 3) {
-
 				//draw the right pedal
 				setDiffuseColor(0.05, 0.05, 0.05);
 				glPushMatrix();
@@ -214,60 +396,115 @@ void Unicycle::draw()
 				glTranslated(0, PEDAL_WIDTH + PEDAL_GAP, 0);
 				drawBox(PEDAL_LENGTH, PEDAL_WIDTH, PEDAL_HEIGHT);
 				glPopMatrix();
-
 			}
-
 			glPopMatrix();
-
 			//draw the tube
 			//left lower tube
 			setDiffuseColor(1, 0, 0);
+			if (VAL(HAPPINESS) == 1 && VAL(BEND) != 0) { // do some adjustment so that saddle --- axle do not rotate
+				double a = TUBE_HEIGHT_UPPER + SEATPOST_HEIGHT;
+				double b = TUBE_HEIGHT_LOWER + TUBE_HEIGHT_MIDDLE - AXLE_RADIUS;
+				double theta = VAL(BEND) / 180 * PI;
+				double phi = atan(a / theta * (1 - cos(theta)) / (b + a / theta * sin(theta)));
+				double angle = phi / PI * 180;
+				glRotated(-(VAL(TUBE_DIR) - angle), 1, 0, 0);
+			}
+			else {
+				glRotated(-VAL(TUBE_DIR), 1, 0, 0);
+			}
 			glPushMatrix();
-			glRotated(-VAL(TUBE_DIR), 1, 0, 0);
 			glTranslated(-TUBE_DIST - TUBE_WIDTH / 2, -TUBE_LENGTH / 2, -AXLE_RADIUS);
 			drawBox(TUBE_WIDTH, TUBE_LENGTH, TUBE_HEIGHT_LOWER);
 			glPopMatrix();
-
 			//right lower tube
 			glPushMatrix();
-			glRotated(-VAL(TUBE_DIR), 1, 0, 0);
 			glTranslated(TUBE_DIST - TUBE_WIDTH / 2, -TUBE_LENGTH / 2, -AXLE_RADIUS);
 			drawBox(TUBE_WIDTH, TUBE_LENGTH, TUBE_HEIGHT_LOWER);
 			glPopMatrix();
-
 			//middle tube
 			glPushMatrix();
-			glRotated(-VAL(TUBE_DIR), 1, 0, 0);
 			glTranslated(-TUBE_DIST - TUBE_WIDTH / 2, -TUBE_LENGTH / 2, -AXLE_RADIUS + TUBE_HEIGHT_LOWER);
 			drawBox(TUBE_WIDTH + TUBE_DIST * 2, TUBE_LENGTH, TUBE_HEIGHT_MIDDLE);
-			glPopMatrix();
-
-			//upper tube
-			glPushMatrix();
-			glRotated(-VAL(TUBE_DIR), 1, 0, 0);
-			glTranslated(0, 0, TUBE_HEIGHT_LOWER + TUBE_HEIGHT_MIDDLE - AXLE_RADIUS);
-			drawCylinder(TUBE_HEIGHT_UPPER, TUBE_RADIUS, TUBE_RADIUS);
+			glTranslated(TUBE_DIST + TUBE_WIDTH / 2, TUBE_LENGTH / 2, AXLE_RADIUS - TUBE_HEIGHT_LOWER);
 
 			if (VAL(LEVEL_OF_DETAILS) >= 3) {
-
-				//draw the seatpost
-				setDiffuseColor(0.4, 0.4, 0.4);
 				glPushMatrix();
-				glTranslated(0, 0, TUBE_HEIGHT_UPPER);
-				drawCylinder(VAL(SEATPOST_HEIGHT), SEATPOST_RADIUS, SEATPOST_RADIUS);
+				glTranslated(0, 0, TUBE_HEIGHT_LOWER + TUBE_HEIGHT_MIDDLE - AXLE_RADIUS);
+				if (VAL(BEND) == 0 && (VAL(HAPPINESS) != -1 || !(animated))) {
+					drawCylinder(TUBE_HEIGHT_UPPER, TUBE_RADIUS, TUBE_RADIUS);
+					glTranslated(0, 0, TUBE_HEIGHT_UPPER);
+					setDiffuseColor(0.4, 0.4, 0.4);
+					drawCylinder(SEATPOST_HEIGHT, SEATPOST_RADIUS, SEATPOST_RADIUS);
+					glTranslated(0, 0, SEATPOST_HEIGHT);
+				}
+				else {
+					//upper tube
+					double rad = VAL(BEND) / 2 / 180 * PI;
+					if (VAL(HAPPINESS) == -1 && animated) rad = min(max(rad+0.005*time+0.0003*time*time,PI/180),(ceil(VAL(BEND) * 1.2 / 2 + 10)) / 180 * PI);
+					else if (VAL(HAPPINESS) == -1 && !(animated)) rad = (ceil(VAL(BEND) * 1.2 / 2 + 10)) / 180 * PI; // To show the "mood" even without animation
+					glPushMatrix();
+					glScaled(1, -1, 1);
+					glRotated(90, 0, 0, 1);
+					glRotated(-90, 1, 0, 0);
+					glScaled(-1, -1, 1);
+					drawPartialTorus(TUBE_HEIGHT_UPPER, TUBE_RADIUS, rad, dDegree);
+					glPopMatrix();
+
+					//draw the seatpost
+					setDiffuseColor(0.4, 0.4, 0.4);
+					glTranslated(0, (1 - cos(rad)) * TUBE_HEIGHT_UPPER / (rad),
+						sin(rad) * TUBE_HEIGHT_UPPER / (rad));
+					glRotated(floor(rad * 180 / PI + 0.1), -1, 0, 0);
+					glPushMatrix();
+					glScaled(1, -1, 1);
+					glRotated(90, 0, 0, 1);
+					glRotated(-90, 1, 0, 0);
+					glScaled(-1, -1, 1);
+					drawPartialTorus(SEATPOST_HEIGHT, SEATPOST_RADIUS, rad, dDegree);
+					glPopMatrix();
+					glTranslated(0, (1 - cos(rad)) * SEATPOST_HEIGHT / (rad),
+						sin(rad) * SEATPOST_HEIGHT / (rad));
+					glRotated(floor(rad * 180 / PI + 0.1), -1, 0, 0);
+				}
 
 				if (VAL(LEVEL_OF_DETAILS) >= 4) {
-
 					//draw the saddle
 					setDiffuseColor(0.05, 0.05, 0.05);
 					glPushMatrix();
-					glTranslated(0, 0, VAL(SEATPOST_HEIGHT));
 					glRotated(-VAL(SADDLE_DIR), 0, 0, 1);
 					glTranslated(-SADDLE_WIDTH / 2, -SADDLE_DIST, 0);
 
-					draw_pad(); // BW5
-
-					draw_spring();
+					if (VAL(SADDLE_QUALITY) >= 1) {
+						draw_pad(); // BW5
+					}
+					//draw_spring();
+					if (VAL(SADDLE_QUALITY) == 2) {
+						setDiffuseColor(0.4, 0.4, 0.4);
+						glPushMatrix();
+						glTranslated(SADDLE_WIDTH / 2, SADDLE_DIST, 0);
+						glTranslated(-SPRING_X, -SPRING_Y, 0);
+						glScaled(-1, -1, -1);
+						drawCylinder(SPRING_CYLINDER_HEIGHT, SPRING_CYLINDER_RADIUS, SPRING_CYLINDER_RADIUS);
+						glScaled(-1, -1, -1);
+						glTranslated(0, 0, SPRING_RADIUS_SMALL);
+						for (int i = 0; i < 9; i++) {
+							glTranslated(0, 0, -SPRING_DIST_APART);
+							drawTorus(SPRING_RADIUS_BIG[i], SPRING_RADIUS_SMALL, dDegree);
+						}
+						glPopMatrix();
+						glPushMatrix();
+						glTranslated(SADDLE_WIDTH / 2, SADDLE_DIST, 0);
+						glTranslated(SPRING_X, -SPRING_Y, 0);
+						glScaled(-1, -1, -1);
+						drawCylinder(SPRING_CYLINDER_HEIGHT, SPRING_CYLINDER_RADIUS, SPRING_CYLINDER_RADIUS);
+						glScaled(-1, -1, -1);
+						glTranslated(0, 0, SPRING_RADIUS_SMALL);
+						for (int i = 0; i < 9; i++) {
+							glTranslated(0, 0, -SPRING_DIST_APART);
+							drawTorus(SPRING_RADIUS_BIG[i], SPRING_RADIUS_SMALL, dDegree);
+						}
+						glPopMatrix();
+					}
 
 					drawTriangle(0,0,0,
 								 SADDLE_WIDTH,0,0,
@@ -293,21 +530,66 @@ void Unicycle::draw()
 					drawTriangle(SADDLE_WIDTH, 0, 0,
 								 SADDLE_WIDTH, 0, SADDLE_HEIGHT,
 								 SADDLE_WIDTH / 2, SADDLE_LENGTH, SADDLE_HEIGHT);
+
+					if (VAL(LEVEL_OF_DETAILS) >= 5) {
+						//draw the label
+						glPushMatrix();
+						setDiffuseColor(1, 0.9, 0.9);
+						glTranslated(SADDLE_WIDTH / 2, SADDLE_DIST + 50, -LABEL_STRING_HEIGHT);
+						glRotated(VAL(LABEL_DIR), 0, 0, 1);
+						drawCylinder(LABEL_STRING_HEIGHT, LABEL_STRING_RADIUS, LABEL_STRING_RADIUS);
+						glTranslated(-LABEL_LENGTH / 2, -LABEL_STRING_RADIUS, -LABEL_HEIGHT);
+						drawBox(LABEL_LENGTH, 2 * LABEL_STRING_RADIUS, LABEL_HEIGHT);
+
+						//BW4 Texture Mapping
+						drawLabelTexture();
+						glTranslated(LABEL_LENGTH, 2 * LABEL_STRING_RADIUS, 0);
+						glScaled(-1, -1, 1);
+						drawLabelTexture();
+
+						glPopMatrix();
+					}
 					glPopMatrix();
 
 				}
-
 				glPopMatrix();
-
 			}
-
 			glPopMatrix();
-
 		}
-
 		glPopMatrix();
-
 	glPopMatrix();
+}
+
+//BW4 Texture Mapping
+void Unicycle::drawLabelTexture() {
+	setDiffuseColor(1, 1, 1);
+	glEnable(GL_TEXTURE_2D);
+	unsigned int texture_id;
+	glGenTextures(1, &texture_id);
+	glBindTexture(GL_TEXTURE_2D, texture_id);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, BMPwidth, BMPheight, 0, GL_RGB, GL_UNSIGNED_BYTE, textureBMP);
+
+	//glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+
+	glBegin(GL_POLYGON);
+
+	glTexCoord2f(0, 0);
+	glVertex3f(0, 2 * LABEL_STRING_RADIUS + LABEL_TEXTURE_EPSILON, LABEL_HEIGHT);
+	glTexCoord2f(1, 0);
+	glVertex3f(0, 2 * LABEL_STRING_RADIUS + LABEL_TEXTURE_EPSILON, 0);
+	glTexCoord2f(1, 1);
+	glVertex3f(LABEL_LENGTH, 2 * LABEL_STRING_RADIUS + LABEL_TEXTURE_EPSILON, 0);
+	glTexCoord2f(0, 1);
+	glVertex3f(LABEL_LENGTH, 2 * LABEL_STRING_RADIUS + LABEL_TEXTURE_EPSILON, LABEL_HEIGHT);
+
+	glEnd(); //Forgetting this line took me 2 hours to debug, stupid me
+
+	glDisable(GL_TEXTURE_2D);
 }
 
 int main()
@@ -316,19 +598,21 @@ int main()
 	// Constructor is ModelerControl(name, minimumvalue, maximumvalue, 
 	// stepsize, defaultvalue)
 	ModelerControl controls[NUMCONTROLS];
-	controls[LEVEL_OF_DETAILS] = ModelerControl("Level of Details", 1, 4, 1, 4);
+	controls[LEVEL_OF_DETAILS] = ModelerControl("Level of Details", 1, 5, 1, 4);
 	controls[XPOS] = ModelerControl("X Position", -7, 7, 0.1f, 0);
 	controls[YPOS] = ModelerControl("Y Position", -7, 7, 0.1f, 0);
 	controls[ZPOS] = ModelerControl("Z Position", 0, 5, 0.1f, 0);
 	controls[AXLE_DIR] = ModelerControl("Direction of Axle", -180, 180, 1, 0);
 	controls[WHEEL_DIR] = ModelerControl("Direction of Wheel", 0, 360, 1, 0);
+	controls[WHEEL_QUALITY] = ModelerControl("Quality of Wheel", 0, 1, 1, 0);
 	controls[CRANK_DIR] = ModelerControl("Direction of Crank", 0, 360, 1, 0);
 	//controls[PEDAL_DIR] = ModelerControl("Direction of Paddle", -180, 180, 1, 0);
 	controls[TUBE_DIR] = ModelerControl("Direction of Tube", -60, 60, 1, 0);
-	controls[SEATPOST_HEIGHT] = ModelerControl("Seatpost Height", SEATPOST_HEIGHT_MIN, SEATPOST_HEIGHT_MAX, 1, (SEATPOST_HEIGHT_MIN+SEATPOST_HEIGHT_MAX)/2);
+	controls[BEND] = ModelerControl("Bending Degree", 0, 90, 2, 0);
 	controls[SADDLE_DIR] = ModelerControl("Direction of Saddle", -45, 45, 1, 0);
+	controls[SADDLE_QUALITY] = ModelerControl("Qaulity of Saddle", 0, 2, 1, 0);
 	controls[LABEL_DIR] = ModelerControl("Direction of Label", -180, 180, 1, 0);
-
+	controls[HAPPINESS] = ModelerControl("Happiness of Character", -1, 1, 1, 0);
 	ModelerApplication::Instance()->Init(&createSampleModel, controls, NUMCONTROLS);
 	return ModelerApplication::Instance()->Run();
 }

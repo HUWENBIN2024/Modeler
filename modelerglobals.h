@@ -12,13 +12,14 @@ enum SampleModelControls
 { 
 	LEVEL_OF_DETAILS,
 	XPOS, YPOS, ZPOS, AXLE_DIR,
-		WHEEL_DIR,
+		WHEEL_DIR, WHEEL_QUALITY,
 		CRANK_DIR,
 			//PEDAL_ROTATE,
 		TUBE_DIR,
-			SEATPOST_HEIGHT,
-				SADDLE_DIR,
+			BEND,
+				SADDLE_DIR, SADDLE_QUALITY,
 					LABEL_DIR,
+	HAPPINESS,
 	NUMCONTROLS
 };
 
@@ -30,6 +31,9 @@ const float AXLE_LENGTH_HALF = 30;
 
 const float WHEEL_RADIUS = 80;
 const float WHEEL_WIDTH = 20;
+const float SPOKE_LENGTH = 75;
+const float SPOKE_RADIUS = 0.6;
+const float SPOKE_DIST = 4;
 
 const float CRANK_DIST = 27; //distance to the center of the wheel
 const float CRANK_LENGTH = 70;
@@ -50,15 +54,25 @@ const float TUBE_HEIGHT_UPPER = 60;
 const float TUBE_RADIUS = 10;
 
 const float SEATPOST_RADIUS = 7;
-const float SEATPOST_HEIGHT_MIN = 10;
-const float SEATPOST_HEIGHT_MAX = 70;
+const float SEATPOST_HEIGHT = 40;
 
-const float SADDLE_HEIGHT = 25;
+const float SADDLE_HEIGHT = 15;
 const float SADDLE_LENGTH = 130;
 const float SADDLE_WIDTH = 60;
 const float SADDLE_DIST = 60; // distance from upper center of seatpost to back,bottom,center of saddle
+const float SPRING_X = 17;
+const float SPRING_Y = 40; // distance to center of saddle
+const float SPRING_CYLINDER_RADIUS = 4;
+const float SPRING_CYLINDER_HEIGHT = 50;
+const float SPRING_RADIUS_BIG[9] = {8,10,11.6,13,14,13,11.6,10,8};
+const float SPRING_RADIUS_SMALL = 2.5;
+const float SPRING_DIST_APART = 5.1; //distance between the centers of the springs
 
-const float LABEL_STRING_HEIGHT = 0;
+const float LABEL_STRING_HEIGHT = 40;
+const float LABEL_STRING_RADIUS = 0.6;
+const float LABEL_LENGTH = 18;
+const float LABEL_HEIGHT = 30;
+const float LABEL_TEXTURE_EPSILON = 0.01; //Texture should be "slightly" (i.e. by epsilon) in front of the label box
 
 // Colors
 #define COLOR_RED		1.0f, 0.0f, 0.0f

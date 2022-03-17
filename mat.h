@@ -1,6 +1,8 @@
 #ifndef __MATRIX_HEADER__
 #define __MATRIX_HEADER__
 
+#include <cmath>
+
 //==========[ Forward References ]=============================================
 
 template <class T> class Vec;
@@ -47,10 +49,10 @@ public:
 
 	//---[ Access Operators ]------------------------------
 
-	T* operator []( int i )
-		{ return &n[i*3]; }
-	const T* operator []( int i ) const
-		{ return &n[i*3]; }
+	T operator []( int i )
+		{ return n[i]; }
+	const T operator []( int i ) const
+		{ return n[i]; }
 
 	//---[ Ordering Methods ]------------------------------
 
@@ -66,7 +68,7 @@ public:
 
 	//---[ Transformation Matrices ]-----------------------
 
-	static Mat3<T> createRotation( T angle, float x, float y );
+	static Mat3<T> createRotation( T angle, T x, T y );
 	static Mat3<T> createTranslation( T x, T y );
 	static Mat3<T> createScale( T sx, T sy );
 	static Mat3<T> createShear( T shx, T shy );
@@ -280,8 +282,13 @@ typedef Mat4<double> Mat4d;
 //==========[ Inline Method Definitions (Matrix) ]=============================
 
 template <class T>
-inline Mat3<T> Mat3<T>::createRotation( T angle, float x, float y ) {
-	Mat3<T> rot;
+inline Mat3<T> Mat3<T>::createRotation( T t, T x, T y ) {
+	float norm = sqrt(x * x + y * y);
+	x /= norm; y /= norm;
+
+	Mat3<T> rot(cos(t) + (1 - cos(t)) * x * x, (1 - cos(t)) * x * y, sin(t) * y,
+				(1 - cos(t)) * x * y, cos(t) + (1 - cos(t)) * y * y, -sin(t) * x,
+				-sin(t) * y, sin(t) * x, cos(t));
 
 	return rot;
 }
