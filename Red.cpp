@@ -33,7 +33,7 @@ private:
 	double dDegree = 10;
 	int time = 0;//For Animation; 1 'time' = 1/30 second
 
-	bool animated = false;
+	bool animated = false;;
 
 	void drawLabelTexture();
 };
