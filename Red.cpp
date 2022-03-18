@@ -6,12 +6,15 @@
 #include "modelerui.h"
 #include <FL/gl.h>
 #include <iostream>
-
+#include <vector>
 #include "modelerglobals.h"
+#include <list>
+#include "CUBE_GRID.h"
+#include "METABALL.h"
 #define PI 3.1415926
 #include "bitmap.h"
 #include "mat.h"
-
+using namespace std;
 
 // To make a Unicycle, we inherit off of ModelerView
 class Unicycle : public ModelerView
@@ -63,6 +66,15 @@ GLfloat bezier(GLfloat l)
 void cal_points()
 {
 
+	// initialize the point_cloud
+	for (int i = 0; i < 130; ++i)
+	{
+		for (int j = 0; j < 60; ++j)
+		{
+			point_cloud[i][j] = SADDLE_HEIGHT;
+ 		}
+	}
+
 	for (int l = 0; l < SADDLE_LENGTH; l++)
 	{
 		GLfloat b = bezier(l);
@@ -75,17 +87,21 @@ void cal_points()
 			GLfloat b_ = (h_ / h) * b;
 			point_cloud[l][int(SADDLE_WIDTH) / 2 + w_] = b_ + SADDLE_HEIGHT;
 		}
+		//point_cloud[l][int(SADDLE_WIDTH / 2) + int(-w/2) - 1] = SADDLE_HEIGHT;
+		//point_cloud[l][int(SADDLE_WIDTH / 2) + int(w / 2)] = SADDLE_HEIGHT;
 	}
 }
 
+bool calculated_pad = 0;
 void draw_pad()
 {
 	cal_points();
-	for (int l = 0; l < SADDLE_LENGTH; l++)
+	for (int l = 0; l < SADDLE_LENGTH - 1; l++)
 	{
 		GLfloat w = (SADDLE_LENGTH - l) / SADDLE_LENGTH * SADDLE_WIDTH;
-		for (int w_ = -w / 2; w_ < w / 2; w_++)
+		for (int w_ = -w / 2 - 1; w_ < w / 2; w_++)
 		{
+			if (l == 0 && w_ == -w / 2 - 1)	continue;
 			double x_1 = SADDLE_WIDTH / 2 + w_; double y_1 = l; double z_1 = point_cloud[int(y_1)][int(x_1)];
 			double x_2 = SADDLE_WIDTH / 2 + w_ + 1; double y_2 = l; double z_2 = point_cloud[int(y_2)][int(x_2)];
 			double x_3 = SADDLE_WIDTH / 2 + w_; double y_3 = l + 1; double z_3 = point_cloud[int(y_3)][int(x_3)];
@@ -95,8 +111,8 @@ void draw_pad()
 						x_2, y_2, z_2, 
 						x_4, y_4, z_4 ); //draw points 1,2,4 
 			drawTriangle(x_1, y_1, z_1,
-						x_3, y_3, z_3,
-						x_4, y_4, z_4); //draw points 1,3,4 
+						x_4, y_4, z_4,
+						x_3, y_3, z_3); //draw points 1,3,4 
 
 		}
 	};
@@ -268,6 +284,125 @@ void drawPartialTorus(double l, double r, double t, double dDegree) { // length,
 	delete[] edgeLine;
 }
 
+
+list<char> koch_curve[10];
+const char rule[] = { 'F', '+', 'F', '-', 'F', '-', 'F', '+', 'F' };
+bool calculated = 0;
+
+void calculateLSystem()
+{
+	list<char>::iterator it;
+	koch_curve[0].emplace_back('F');
+
+	for (int i = 1; i < 10; ++i)
+	{
+		for (it = koch_curve[i - 1].begin(); it != koch_curve[i - 1].end(); ++it)
+		{
+			koch_curve[i].emplace_back(*it);
+		}
+		for (it = koch_curve[i].begin(); it != koch_curve[i].end(); ++it)
+		{
+			if (*it == 'F')
+			{
+				for (int j = 0; j < 8; ++j)
+				{
+					koch_curve[i].insert(it, rule[j]);
+				}
+			}
+		}
+	}
+}
+
+void drawLSystem()
+{
+	int num_iter = VAL(L_SYSTEM) - 1;
+	list<char>::iterator it;
+	setDiffuseColor(0.2, 1, 1);
+	if (!calculated)
+	{
+		calculateLSystem();
+		calculated = 1;
+	}
+	if (num_iter < 0)
+		return;
+	glPushMatrix();
+	glRotated(90, 1, 0, 0);
+	glTranslated(1, 0, 0);
+	for (it = koch_curve[num_iter].begin(); it != koch_curve[num_iter].end(); ++it)
+	{
+		if (*it == 'F')
+		{
+			drawBox(0.2, 0.01, 0.01);
+			glTranslated(0.2, 0, 0);
+		}
+		else if (*it == '+')
+		{
+			glRotated(90, 0, 1, 0);
+		}
+		else
+		{
+			glRotated(-90, 0, 1, 0);
+		}
+	}
+	//drawBox(100, 100, 100);
+	glPopMatrix();
+
+}
+
+void drawMetaball()
+{
+	float ball_parameters[4][4] = { {-5, 0, 5, VAL(META_BALL1_RADIUS)}, {5, 0, 5, VAL(META_BALL2_RADIUS)}, {5, 0, -5, VAL(META_BALL3_RADIUS)}, {-5, 0, -5, VAL(META_BALL4_RADIUS)} };
+	int num_metaballs = 4;
+	int grid_size = 20;
+	float threshold = 0.7 * VAL(META_BALL_SCALE);
+	CUBE_GRID cube_grid;
+	VECTOR3D ball_center;
+	VECTOR3D center_to_position;
+	float radius_square = 0;
+	float scale = 0;
+
+	// intialize the cubes we want
+	cube_grid.CreateMemory();
+	cube_grid.Init(grid_size);
+
+	// define and intialize metaballs
+	METABALL* metaball = new METABALL[num_metaballs];
+
+	metaball[0].Init(VECTOR3D(ball_parameters[0][0], ball_parameters[0][1], ball_parameters[0][2]), pow(ball_parameters[0][3], 2));
+	metaball[1].Init(VECTOR3D(ball_parameters[1][0], ball_parameters[1][1], ball_parameters[1][2]), pow(ball_parameters[1][3], 2));
+	metaball[2].Init(VECTOR3D(ball_parameters[2][0], ball_parameters[2][1], ball_parameters[2][2]), pow(ball_parameters[2][3], 2));
+	metaball[3].Init(VECTOR3D(ball_parameters[3][0], ball_parameters[3][1], ball_parameters[3][2]), pow(ball_parameters[3][3], 2));
+
+	for (int i = 0; i < num_metaballs; ++i)
+	{
+		radius_square = metaball[i].squaredRadius;
+		ball_center = metaball[i].position;
+
+		for (int j = 0; j < cube_grid.numVertices; j++)
+		{
+			center_to_position.x = cube_grid.vertices[j].position.x - ball_center.x;
+			center_to_position.y = cube_grid.vertices[j].position.y - ball_center.y;
+			center_to_position.z = cube_grid.vertices[j].position.z - ball_center.z;
+
+			// square distance from the center to the point
+			float distance_square = pow(center_to_position.x, 2) + pow(center_to_position.y, 2) + pow(center_to_position.z, 2);
+			distance_square = (distance_square == 0) ? 0.00001 : distance_square;
+
+			cube_grid.vertices[j].value += radius_square / distance_square;
+			scale = radius_square / pow(distance_square, 2);
+			// get the normal vector
+			cube_grid.vertices[j].normal.x += center_to_position.x * scale;
+			cube_grid.vertices[j].normal.y += center_to_position.y * scale;
+			cube_grid.vertices[j].normal.z += center_to_position.z * scale;
+		}
+	}
+
+	cube_grid.DrawSurface(threshold);
+	cube_grid.FreeMemory();
+	delete[] metaball;
+
+}
+
 // We are going to override (is that the right word?) the draw()
 // method of ModelerView to draw out Unicycle
 void Unicycle::draw()
@@ -293,6 +428,20 @@ void Unicycle::draw()
 	
 	if (animated) ++time;
 	else time = 0;
+
+	drawLSystem();
+
+	if (VAL(META_BALL_CONTROL) == 1)
+	{
+		//setDiffuseColor(0, 1, 1);
+		glPushMatrix();
+		glEnable(GL_NORMALIZE);
+		glTranslated(-3, 0, 0);
+		glRotated(90, 1, 0, 0);
+		glScaled(0.1, 0.1, 0.1);
+		drawMetaball();
+		glPopMatrix();
+	}
 
 	glPushMatrix();
 	glScaled(1, -1, 1);
@@ -475,7 +624,9 @@ void Unicycle::draw()
 					glTranslated(-SADDLE_WIDTH / 2, -SADDLE_DIST, 0);
 
 					if (VAL(SADDLE_QUALITY) >= 1) {
+						setDiffuseColor(1, float(240 / 255), 1);
 						draw_pad(); // BW5
+						setDiffuseColor(0.05, 0.05, 0.05);
 					}
 					//draw_spring();
 					if (VAL(SADDLE_QUALITY) == 2) {
@@ -613,6 +764,14 @@ int main()
 	controls[SADDLE_QUALITY] = ModelerControl("Qaulity of Saddle", 0, 2, 1, 0);
 	controls[LABEL_DIR] = ModelerControl("Direction of Label", -180, 180, 1, 0);
 	controls[HAPPINESS] = ModelerControl("Happiness of Character", -1, 1, 1, 0);
+	controls[FRAME_ALL] = ModelerControl("See the whole character", 0, 1, 1, 0);
+	controls[L_SYSTEM] = ModelerControl("L-System control", 0, 10, 1, 0);
+	controls[META_BALL_CONTROL] = ModelerControl("metaball control:", 0, 1, 1, 0);
+	controls[META_BALL1_RADIUS] = ModelerControl("metaball_1 radius:", 1.5, 3.5, 0.1, 3);
+	controls[META_BALL2_RADIUS] = ModelerControl("metaball_2 radius:", 1.5, 3.5, 0.1, 3);
+	controls[META_BALL3_RADIUS] = ModelerControl("metaball_3 radius:", 1.5, 3.5, 0.1, 3);
+	controls[META_BALL4_RADIUS] = ModelerControl("metaball_4 radius:", 1.5, 3.5, 0.1, 3);
+	controls[META_BALL_SCALE] = ModelerControl("metaball scale:", 2, 0.7, 0.01, 1);
 	ModelerApplication::Instance()->Init(&createSampleModel, controls, NUMCONTROLS);
 	return ModelerApplication::Instance()->Run();
 }
