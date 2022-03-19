@@ -1,1 +1,2 @@
 D:\pa2\Release\modeler.exe
+D:\pa2_new_version\Release\modeler.exe

@@ -36,6 +36,9 @@
     <ClCompile Include="red.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CUBE_GRID.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bitmap.h">
@@ -63,6 +66,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="vec.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CUBE_GRID.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="METABALL.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="VECTOR3D.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
