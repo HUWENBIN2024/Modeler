@@ -19,7 +19,7 @@ enum SampleModelControls
 			BEND,
 				SADDLE_DIR, SADDLE_QUALITY,
 					LABEL_DIR,
-	HAPPINESS,
+	HAPPINESS, 
 	FRAME_ALL,
 	L_SYSTEM,
 	META_BALL_CONTROL,
@@ -28,6 +28,10 @@ enum SampleModelControls
 	META_BALL3_RADIUS,
 	META_BALL4_RADIUS,
 	META_BALL_SCALE,
+	IK_VISUALIZE,
+	IK_TARGETX, IK_TARGETY, IK_TARGETZ,
+	IK_MODE,
+	IK_MOVE,
 	NUMCONTROLS
 };
 
@@ -89,6 +93,7 @@ const float LABEL_TEXTURE_EPSILON = 0.01; //Texture should be "slightly" (i.e. b
 
 // We'll be getting the instance of the application a lot; 
 // might as well have it as a macro.
-#define VAL(x) (ModelerApplication::Instance()->GetControlValue(x))
+#define VAL(name) (ModelerApplication::Instance()->GetControlValue(name))
+#define SET(name, val) (ModelerApplication::Instance()->SetControlValue(name, val))
 
 #endif

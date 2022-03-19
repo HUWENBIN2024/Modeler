@@ -7,6 +7,7 @@
 #include <FL/gl.h>
 #include <iostream>
 #include <vector>
+
 #include "modelerglobals.h"
 #include <list>
 #include "CUBE_GRID.h"
@@ -14,7 +15,13 @@
 #define PI 3.1415926
 #include "bitmap.h"
 #include "mat.h"
+#include "Eigen/Dense"
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+using namespace Eigen;
 using namespace std;
+
+void _setupOpenGl();
 
 // To make a Unicycle, we inherit off of ModelerView
 class Unicycle : public ModelerView
@@ -25,6 +32,12 @@ public:
 		BMPheight = 64;
 		BMPwidth = 64;
 		textureBMP = readBMP("./Red_Label.bmp", BMPwidth, BMPheight);
+		// For IK
+		IK_related[AXLE_DIR] = true;
+		IK_related[CRANK_DIR] = true;
+		IK_related[TUBE_DIR] = true;
+		IK_related[BEND] = true;
+		IK_related[SADDLE_DIR] = true;
 	}
 
 	virtual void draw();
@@ -39,6 +52,15 @@ private:
 	bool animated = false;
 
 	void drawLabelTexture();
+
+	// For IK
+	bool IK_Mode_Prev = false;
+	double IK_init[NUMCONTROLS];
+	double IK_target[NUMCONTROLS];
+	bool IK_related[NUMCONTROLS] = { false };
+	void IK_Compute();
+	Matrix<double, 3, 1> Diff(Matrix<double, 5, 1> input_vector_of_angles);
+	Matrix<double, 3, 1> End(Matrix<double,5,1> input_vector_of_angles, Matrix<double,3,1> starting_point);
 };
 
 // We need to make a creator function, mostly because of
@@ -72,7 +94,7 @@ void cal_points()
 		for (int j = 0; j < 60; ++j)
 		{
 			point_cloud[i][j] = SADDLE_HEIGHT;
- 		}
+		}
 	}
 
 	for (int l = 0; l < SADDLE_LENGTH; l++)
@@ -93,10 +115,11 @@ void cal_points()
 }
 
 bool calculated_pad = 0;
+
 void draw_pad()
 {
 	cal_points();
-	for (int l = 0; l < SADDLE_LENGTH - 1; l++)
+	for (int l = 0; l < SADDLE_LENGTH-1; l++)
 	{
 		GLfloat w = (SADDLE_LENGTH - l) / SADDLE_LENGTH * SADDLE_WIDTH;
 		for (int w_ = -w / 2 - 1; w_ < w / 2; w_++)
@@ -143,6 +166,8 @@ void draw_spring()
 // By default, normal is k_hat = (0,0,1).
 // centerLine is of size (lineSize+1,2). edgeLine is of size (lineSize,2).
 void drawTube(double** centerLine, double** edgeLine, int lineSize, double dDegree) {
+	_setupOpenGl();
+
 	//Beware of segmentation error when using this function.
 	int SPPL = (int)(360 / dDegree); //"Sample Points per Layer"
 
@@ -284,7 +309,6 @@ void drawPartialTorus(double l, double r, double t, double dDegree) { // length,
 	delete[] edgeLine;
 }
 
-
 list<char> koch_curve[10];
 const char rule[] = { 'F', '+', 'F', '-', 'F', '-', 'F', '+', 'F' };
 bool calculated = 0;
@@ -403,6 +427,7 @@ void drawMetaball()
 
 }
 
+
 // We are going to override (is that the right word?) the draw()
 // method of ModelerView to draw out Unicycle
 void Unicycle::draw()
@@ -420,8 +445,6 @@ void Unicycle::draw()
 	glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
 	glLightfv(GL_LIGHT1, GL_DIFFUSE, lightDiffuse);
 	glLightfv(GL_LIGHT2, GL_AMBIENT, lightAmbient);
-
-
 
 	if (ModelerUserInterface::m_controlsAnimOnMenu->value() != 0) animated = true;
 	else animated = false;
@@ -458,9 +481,43 @@ void Unicycle::draw()
 
 	// draw the unicycle
 	setAmbientColor(0.1f,0.1f,0.1f);
-	setDiffuseColor(0.4,0.4,0.4);
-	glTranslated(VAL(XPOS), VAL(YPOS), VAL(ZPOS));
 	glScaled(SCALE_FACTOR, SCALE_FACTOR, SCALE_FACTOR);
+
+	// draw IK Target Point
+	if (VAL(IK_VISUALIZE) == 1) {
+		setDiffuseColor(0, 1, 0);
+		glPushMatrix();
+		glTranslated(VAL(IK_TARGETX), VAL(IK_TARGETY), VAL(IK_TARGETZ));
+		drawSphere(SADDLE_HEIGHT / 3);
+		glPopMatrix();
+	}
+
+	setDiffuseColor(0.4, 0.4, 0.4);
+
+	// For IK control
+	if (VAL(IK_MODE) == 1) {
+		if (IK_Mode_Prev == false) {
+			IK_Compute();
+			IK_Mode_Prev = true;
+		}
+		for (int item = 0; item < NUMCONTROLS; item++) {
+			if ((!IK_related[item]) && item != XPOS && item != YPOS && item != ZPOS) continue; // Do not change unrelated controls
+			SET(item, VAL(IK_MOVE) / 100.0 * IK_target[item] + (1 - VAL(IK_MOVE) / 100.0) * IK_init[item]); //"(int)" & floor() may be needed
+		}
+		// Reset CRANK_DIR so that the final animation is more smooth
+		/*if ((int)(IK_target[CRANK_DIR] - IK_init[CRANK_DIR]) % 360 <= (int)(IK_init[CRANK_DIR] - IK_target[CRANK_DIR]) % 360) {
+			SET(CRANK_DIR, ((int)(IK_init[CRANK_DIR] + VAL(IK_MOVE) * ((int)(IK_target[CRANK_DIR] - IK_init[CRANK_DIR]) % 360)) % 360));
+		} // Move clockwise to target
+		else { // Move counterclockwise to target
+			SET(CRANK_DIR, ((int)(IK_init[CRANK_DIR] - VAL(IK_MOVE) * ((int)(IK_init[CRANK_DIR] - IK_target[CRANK_DIR]) % 360)) % 360));
+		}*/
+		// This trial failed. Do not have time to find the bugs in this.
+	}
+	else {
+		IK_Mode_Prev = false;
+	}
+
+	glTranslated(VAL(XPOS), VAL(YPOS), VAL(ZPOS));
 		//draw the axle
 		glPushMatrix();
 		if (VAL(HAPPINESS) == -1) {
@@ -700,6 +757,14 @@ void Unicycle::draw()
 
 						glPopMatrix();
 					}
+
+					// Draw IK Fixed Point
+					if (VAL(IK_VISUALIZE) == 1) {
+						glTranslated(SADDLE_WIDTH / 2, SADDLE_LENGTH, 0);
+						setDiffuseColor(1, 0, 0);
+						drawSphere(SADDLE_HEIGHT / 3);
+					}
+
 					glPopMatrix();
 
 				}
@@ -743,6 +808,122 @@ void Unicycle::drawLabelTexture() {
 	glDisable(GL_TEXTURE_2D);
 }
 
+// From Actual Axle Center to Starting Point
+Matrix<double, 3, 1> Unicycle::Diff(Matrix<double, 5, 1> t) {
+	Matrix<double, 3, 1> s; s << 0, 0, 0;
+	s(1) += (SADDLE_LENGTH - SADDLE_DIST);
+	AngleAxisd saddle(-t(4), Vector3d(0, 0, 1));
+	s = saddle.matrix() * s;
+	AngleAxisd bend(-t(3), Vector3d(1, 0, 0));
+	s = bend.matrix() * s;
+	if (t(3) != 0) {
+		s(1) += (TUBE_HEIGHT_UPPER + SEATPOST_HEIGHT) * (1 - cos(t(3))) / t(3);
+		s(2) += (TUBE_HEIGHT_UPPER + SEATPOST_HEIGHT) * sin(t(3)) / t(3);
+	}
+	else {
+		s(2) += (TUBE_HEIGHT_UPPER + SEATPOST_HEIGHT);
+	}
+	s(2) += (TUBE_HEIGHT_LOWER + TUBE_HEIGHT_MIDDLE - AXLE_RADIUS);
+	AngleAxisd tube(-t(2), Vector3d(1, 0, 0));
+	s = tube.matrix() * s;
+	AngleAxisd axle(t(0), Vector3d(0, 0, 1));
+	s = axle.matrix() * s;
+
+	return s; // Can Vector3d be automatically converted to Matrix?
+}
+
+// Actual End Point. Formula := Starting Point - Diff + (Actual Axle Center to Actual End Point)
+Matrix<double, 3, 1> Unicycle::End(Matrix<double, 5, 1> t, Matrix<double, 3, 1> s) {
+	Matrix<double, 3, 1> E; E << 0, 0, 0;
+	E(0) = -CRANK_DIST; E(1) = CRANK_LENGTH;
+	AngleAxisd crank(-t(1), Vector3d(1, 0, 0));
+	E = crank.matrix() * E;
+	E(0) += -PEDAL_LENGTH/2;
+	/*E(1) += (PEDAL_GAP / 2 + PEDAL_WIDTH);*/
+	E(2) += (PEDAL_HEIGHT / 2);
+	AngleAxisd axle(t(0), Vector3d(0, 0, 1)); //×¢ÒâË³ÄæÊ±Õë
+	E = axle.matrix() * E;
+
+	return s - Diff(t) + E;
+}
+
+void Unicycle::IK_Compute() {
+	Matrix<double, 3, 1> xyz; xyz << VAL(XPOS), VAL(YPOS), VAL(ZPOS);
+	Matrix<double, 3, 1> tar; tar << VAL(IK_TARGETX), VAL(IK_TARGETY), VAL(IK_TARGETZ);
+	Matrix<double, 5, 1> c; // Means "IK_Current", but in rad.
+	Matrix<double, 5, 5> d; // Take "a small step" on the angles when computing Jacobian
+	for (int i = 0; i < 5; i++) {
+		for (int j = 0; j < 5; j++) {
+			if (i == j) d(i,j) = 1.0/60;
+			else d(i,j) = 0;
+		}
+	}
+	double lr = 0.001; // How much should we change the end each time; similar to "learning rate" in deep learning
+	int ceiling_reached = 0; // If performance does not increase for a long time, then we stop and claim that we cannot do better
+
+	// Set the Initial Points
+	for (int item = 0; item < NUMCONTROLS; item++) {
+		if (!IK_related[item]) continue; // Do not change unrelated controls
+		IK_init[item] = VAL(item);
+	}
+	IK_init[XPOS] = xyz(0); IK_init[YPOS] = xyz(1); IK_init[ZPOS] = xyz(2);
+
+	c(0) = VAL(AXLE_DIR); c(1) = VAL(CRANK_DIR); c(2) = VAL(TUBE_DIR); c(3) = VAL(BEND); c(4) = VAL(SADDLE_DIR);
+	c *= (PI / 180);
+	Matrix<double, 3, 1> s; s = xyz + Diff(c); // Starting Point
+	std::cout << (s).transpose() << std::endl << End(c, s).transpose() << std::endl;
+
+	Matrix<double, 5, 1> prevc; prevc << 0, 0, 0, 0, 0;
+	do {
+		// Compute Jacobian
+		Matrix<double, 3, 5> J; // Jacobian
+		for (int i = 0; i < 5; i++) {
+			J.col(i) = (End(c + d.col(i),s) - End(c,s)) / d(0);
+		}
+
+		//Compute Pseudoinverse
+		Matrix<double, 5, 3> Jpi = J.transpose() * (J * J.transpose()).inverse();
+
+		//Compute New "IK_Current" angles (A break condition within (if cannot improve anymore))
+		Matrix<double, 3, 1> dE = tar - End(c,s);
+		Matrix<double, 5, 1> dT = Jpi * dE; dT.normalize();
+		c = c + lr * dT;
+		std::cout << (tar - End(c, s)).norm() << " " << (tar - End(prevc, s)).norm() << std::endl;
+		if (ceiling_reached >= 75) {
+			std::cout << "Cannot Improve Anymore" << std::endl;
+			break;
+		}
+
+		//Filter on "IK_Current" to satisfy the constrains
+		if (c(0) < -PI) c(0) = -PI; if (c(0) > PI) c(0) = PI;//Axle
+		if (c(1) < 0) c(1) += 2*PI; if (c(1) > 2*PI) c(1) -= 2*PI;//Crank
+		if (c(2) < -PI/3) c(2) = -PI/3; if (c(2) > PI/3) c(2) = PI/3;//Tube
+		if (c(3) < 0) c(3) = 0; if (c(3) > PI/2) c(3) = PI/2;//Bend
+		if (c(4) < -PI/4) c(4) = PI/4; if (c(4) > PI/4) c(4) = PI/4;//Saddle
+
+		if ((tar - End(c, s)).norm() - (tar - End(prevc, s)).norm() >= 0) ++ceiling_reached;
+		prevc = c;
+
+		//Determine breaking condition: Cannot improve anymore (written above) or close enough
+		if ((tar - End(c, s)).norm() <= 1) {
+			std::cout << "Close Enough" << std::endl;
+			break;
+		}
+		
+	} while (true);
+
+	// Set the Target Angles
+	int i = 0;
+	for (int item = 0; item < NUMCONTROLS; item++) {
+		if (!IK_related[item]) continue; // Do not change unrelated controls
+		IK_target[item] = (int)round(c(i) / PI * 180);
+		++i;
+	}
+	// Translate XYZPOS
+	Matrix<double, 3, 1> newXYZ = s - Diff(c);
+	IK_target[XPOS] = newXYZ(0); IK_target[YPOS] = newXYZ(1); IK_target[ZPOS] = newXYZ(2);
+}
+
 int main()
 {
 	// Initialize the controls
@@ -750,18 +931,18 @@ int main()
 	// stepsize, defaultvalue)
 	ModelerControl controls[NUMCONTROLS];
 	controls[LEVEL_OF_DETAILS] = ModelerControl("Level of Details", 1, 5, 1, 4);
-	controls[XPOS] = ModelerControl("X Position", -7, 7, 0.1f, 0);
-	controls[YPOS] = ModelerControl("Y Position", -7, 7, 0.1f, 0);
-	controls[ZPOS] = ModelerControl("Z Position", 0, 5, 0.1f, 0);
+	controls[XPOS] = ModelerControl("X Position", -350, 350, 1, 0);
+	controls[YPOS] = ModelerControl("Y Position", -350, 350, 1, 0);
+	controls[ZPOS] = ModelerControl("Z Position", 0, 250, 1, 0);
 	controls[AXLE_DIR] = ModelerControl("Direction of Axle", -180, 180, 1, 0);
 	controls[WHEEL_DIR] = ModelerControl("Direction of Wheel", 0, 360, 1, 0);
 	controls[WHEEL_QUALITY] = ModelerControl("Quality of Wheel", 0, 1, 1, 0);
 	controls[CRANK_DIR] = ModelerControl("Direction of Crank", 0, 360, 1, 0);
-	//controls[PEDAL_DIR] = ModelerControl("Direction of Paddle", -180, 180, 1, 0);
+	//controls[PEDAL_DIR] = ModelerControl("Direction of Pedal", -180, 180, 1, 0);
 	controls[TUBE_DIR] = ModelerControl("Direction of Tube", -60, 60, 1, 0);
 	controls[BEND] = ModelerControl("Bending Degree", 0, 90, 2, 0);
 	controls[SADDLE_DIR] = ModelerControl("Direction of Saddle", -45, 45, 1, 0);
-	controls[SADDLE_QUALITY] = ModelerControl("Qaulity of Saddle", 0, 2, 1, 0);
+	controls[SADDLE_QUALITY] = ModelerControl("Quality of Saddle", 0, 2, 1, 0);
 	controls[LABEL_DIR] = ModelerControl("Direction of Label", -180, 180, 1, 0);
 	controls[HAPPINESS] = ModelerControl("Happiness of Character", -1, 1, 1, 0);
 	controls[FRAME_ALL] = ModelerControl("See the whole character", 0, 1, 1, 0);
@@ -772,6 +953,12 @@ int main()
 	controls[META_BALL3_RADIUS] = ModelerControl("metaball_3 radius:", 1.5, 3.5, 0.1, 3);
 	controls[META_BALL4_RADIUS] = ModelerControl("metaball_4 radius:", 1.5, 3.5, 0.1, 3);
 	controls[META_BALL_SCALE] = ModelerControl("metaball scale:", 2, 0.7, 0.01, 1);
+	controls[IK_VISUALIZE] = ModelerControl("Visualize IK Chosen Points", 0, 1, 1, 1);
+	controls[IK_TARGETX] = ModelerControl("IK Target XPOS of Pedal", -350, 350, 1, -50);
+	controls[IK_TARGETY] = ModelerControl("IK Target YPOS of Pedal", -350, 350, 1, 75);
+	controls[IK_TARGETZ] = ModelerControl("IK Target ZPOS of Pedal", 0, 250, 1, 50);
+	controls[IK_MODE] = ModelerControl("Inverse Kinematics Mode", 0, 1, 1, 0);
+	controls[IK_MOVE] = ModelerControl("Inverse Kinematics Motion %", 0, 100, 1, 0);
 	ModelerApplication::Instance()->Init(&createSampleModel, controls, NUMCONTROLS);
 	return ModelerApplication::Instance()->Run();
 }

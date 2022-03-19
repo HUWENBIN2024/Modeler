@@ -91,10 +91,10 @@ void Camera::calculateViewingTransformParameters()
 	// grouped for (mat4 * vec3) ops instead of (mat4 * mat4) ops
 	mPosition = originXform * (azimXform * (elevXform * (dollyXform * mPosition)));
 
-	if ( fmod((double)mElevation, 2.0*M_PI) < 3*M_PI/2 && fmod((double)mElevation, 2.0*M_PI) > M_PI/2 )
-		mUpVector= Vec3f(sin(mTwist), -cos(mTwist), 0);
+	if (fmod((double)mElevation, 2.0 * M_PI) < 3 * M_PI / 2 && fmod((double)mElevation, 2.0 * M_PI) > M_PI / 2)
+		mUpVector = Vec3f(sin(mTwist), -cos(mTwist), 0);
 	else
-		mUpVector= Vec3f(-sin(mTwist), cos(mTwist), 0);
+		mUpVector = Vec3f(-sin(mTwist), cos(mTwist), 0);
 
 	mDirtyTransform = false;
 }
